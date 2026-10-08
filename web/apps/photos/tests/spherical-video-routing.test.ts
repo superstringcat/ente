@@ -37,6 +37,7 @@ const route = async (
     file: EnteFile,
     dimensions: { width: number; height: number },
     detected?: typeof sphericalVideo | null,
+    videoQuality: "auto" | "original" = "auto",
 ) => {
     const renderableSourceURLs = vi
         .fn<() => Promise<RenderableSourceURLs>>()
@@ -56,27 +57,32 @@ const route = async (
         extractRawExif: vi.fn(),
         parseExif: vi.fn(),
     });
-    source.itemDataForFile(file, undefined, vi.fn());
+    source.itemDataForFile(file, { videoQuality }, vi.fn());
     await vi.waitFor(() =>
         expect(
-            source.itemDataForFile(file, undefined, vi.fn()).isContentLoading,
+            source.itemDataForFile(file, { videoQuality }, vi.fn())
+                .isContentLoading,
         ).toBeUndefined(),
     );
     return {
-        item: source.itemDataForFile(file, undefined, vi.fn()),
+        item: source.itemDataForFile(file, { videoQuality }, vi.fn()),
         renderableSourceURLs,
+        source,
     };
 };
 
-test("known panoramas use the original even if a flat HLS preview exists", async () => {
+test("known panoramas stream without downloading the original", async () => {
     const { item, renderableSourceURLs } = await route(
         file({ sphericalVideo, sphericalVideoChecked: true }),
-        { width: 1280, height: 720 },
+        { width: 1440, height: 720 },
         sphericalVideo,
     );
-    expect(renderableSourceURLs).toHaveBeenCalledOnce();
-    expect(item).toMatchObject({ videoURL: "blob:original", sphericalVideo });
-    expect(item.videoPlaylistURL).toBeUndefined();
+    expect(renderableSourceURLs).not.toHaveBeenCalled();
+    expect(item).toMatchObject({
+        videoPlaylistURL: "blob:hls",
+        sphericalVideo,
+    });
+    expect(item.videoURL).toBeUndefined();
 });
 
 test("uninspected 2:1 previews trigger inspection of the original", async () => {
@@ -86,6 +92,7 @@ test("uninspected 2:1 previews trigger inspection of the original", async () => 
         sphericalVideo,
     );
     expect(item.sphericalVideo).toEqual(sphericalVideo);
+    expect(item.videoPlaylistURL).toBe("blob:hls");
     expect(renderableSourceURLs).toHaveBeenCalledOnce();
 });
 
@@ -120,4 +127,51 @@ test("encrypted public metadata schema retains projection data and unrelated fie
         caption: "Trip",
         futureField: "keep",
     });
+});
+
+test("original-quality selection keeps spherical metadata and the stream switch", async () => {
+    const { item, renderableSourceURLs } = await route(
+        file({ sphericalVideo, sphericalVideoChecked: true }),
+        { width: 1440, height: 720 },
+        sphericalVideo,
+        "original",
+    );
+    expect(renderableSourceURLs).toHaveBeenCalledOnce();
+    expect(item).toMatchObject({
+        videoURL: "blob:original",
+        videoPlaylistURL: "blob:hls",
+        sphericalVideo,
+    });
+});
+
+test("a preview with an incompatible projection aspect ratio falls back to the spherical original", async () => {
+    const { item, renderableSourceURLs } = await route(
+        file({ sphericalVideo, sphericalVideoChecked: true }),
+        { width: 1280, height: 720 },
+        sphericalVideo,
+    );
+    expect(renderableSourceURLs).toHaveBeenCalledOnce();
+    expect(item).toMatchObject({ videoURL: "blob:original", sphericalVideo });
+    expect(item.videoPlaylistURL).toBeUndefined();
+});
+
+test("legacy detection is reused when a quality change refreshes the slide", async () => {
+    const legacy = file();
+    const { source, renderableSourceURLs } = await route(
+        legacy,
+        { width: 1440, height: 720 },
+        sphericalVideo,
+    );
+    source.forgetItemDataForFileID(legacy.id);
+    source.itemDataForFile(legacy, { videoQuality: "auto" }, vi.fn());
+    await vi.waitFor(() =>
+        expect(
+            source.itemDataForFile(legacy, { videoQuality: "auto" }, vi.fn())
+                .videoPlaylistURL,
+        ).toBe("blob:hls"),
+    );
+    expect(renderableSourceURLs).toHaveBeenCalledOnce();
+    expect(
+        source.itemDataForFile(legacy, undefined, vi.fn()).sphericalVideo,
+    ).toEqual(sphericalVideo);
 });

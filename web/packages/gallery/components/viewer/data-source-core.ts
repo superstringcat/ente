@@ -94,6 +94,7 @@ class FileViewerDataSourceState {
     needsReset = false;
     itemDataByFileID = new Map<number, ItemData>();
     itemDataValidTillByFileID = new Map<number, Date>();
+    sphericalVideoByFileID = new Map<number, SphericalVideoMetadata | null>();
     needsRefreshByFileID = new Map<number, () => void>();
     fileInfoExifByFileID = new Map<number, FileInfoExif>();
     exifObserverByFileID = new Map<number, (exif: FileInfoExif) => void>();
@@ -216,11 +217,14 @@ export const createFileViewerDataSource = ({
             sphericalVideo?: SphericalVideoMetadata | null,
         ) => {
             const videoURLD = videoURL ? { videoURL } : {};
-            if (sphericalVideo) {
-                // Existing low-resolution previews are unsuitable for spherical viewing.
-                update({ ...videoURLD, sphericalVideo });
-                return;
-            }
+            const sphericalVideoData = sphericalVideo ? { sphericalVideo } : {};
+            if (
+                sphericalVideo &&
+                typeof hlsPlaylistData == "object" &&
+                Math.abs(hlsPlaylistData.width / hlsPlaylistData.height - 2) >
+                    0.02
+            )
+                hlsPlaylistData = "skip";
             if (typeof hlsPlaylistData == "object") {
                 const {
                     playlistURL: videoPlaylistURL,
@@ -228,13 +232,20 @@ export const createFileViewerDataSource = ({
                     height,
                 } = hlsPlaylistData;
                 update(
-                    { ...videoURLD, videoPlaylistURL, width, height },
+                    {
+                        ...videoURLD,
+                        videoPlaylistURL,
+                        width,
+                        height,
+                        ...sphericalVideoData,
+                    },
                     createHLSPlaylistItemDataValidity(),
                 );
             } else {
                 // "skip" is stable; undefined may become a playlist later.
                 update({
                     ...videoURLD,
+                    ...sphericalVideoData,
                     isTransient: hlsPlaylistData != "skip",
                 });
             }
@@ -271,6 +282,9 @@ export const createFileViewerDataSource = ({
 
         try {
             let hlsPlaylistData: HLSPlaylistDataForFile;
+            const knownSphericalVideo =
+                file.pubMagicMetadata?.data.sphericalVideo ??
+                _state.sphericalVideoByFileID.get(fileID);
             if (file.metadata.fileType == FileType.video) {
                 hlsPlaylistData = await hlsPlaylistDataForFile(
                     file,
@@ -279,11 +293,20 @@ export const createFileViewerDataSource = ({
                 if (
                     typeof hlsPlaylistData == "object" &&
                     opts?.videoQuality != "original" &&
-                    !file.pubMagicMetadata?.data.sphericalVideo &&
-                    (file.pubMagicMetadata?.data.sphericalVideoChecked ||
+                    (!knownSphericalVideo ||
+                        Math.abs(
+                            hlsPlaylistData.width / hlsPlaylistData.height - 2,
+                        ) <= 0.02) &&
+                    (knownSphericalVideo ||
+                        _state.sphericalVideoByFileID.has(fileID) ||
+                        file.pubMagicMetadata?.data.sphericalVideoChecked ||
                         hlsPlaylistData.width != 2 * hlsPlaylistData.height)
                 ) {
-                    updateVideo(undefined, hlsPlaylistData);
+                    updateVideo(
+                        undefined,
+                        hlsPlaylistData,
+                        knownSphericalVideo,
+                    );
                     return;
                 }
             }
@@ -300,6 +323,11 @@ export const createFileViewerDataSource = ({
 
                 case "video": {
                     const { videoURL, sphericalVideo } = sourceURLs;
+                    if (sphericalVideo !== undefined)
+                        _state.sphericalVideoByFileID.set(
+                            fileID,
+                            sphericalVideo,
+                        );
                     updateVideo(videoURL, hlsPlaylistData, sphericalVideo);
                     break;
                 }

@@ -7,6 +7,14 @@ const state = vi.hoisted(() => ({
     destroyed: vi.fn(),
     pending: undefined as Promise<void> | undefined,
     textureDisposed: vi.fn(),
+    hlsCreated: vi.fn(),
+    hlsDestroyed: vi.fn(),
+    attach: vi.fn(),
+    playlist: vi.fn(),
+    supported: true,
+    error: undefined as
+        | ((event: string, data: { fatal: boolean; details: string }) => void)
+        | undefined,
 }));
 vi.mock("ente-base/log", () => ({
     default: { error: vi.fn(), debug: vi.fn() },
@@ -37,6 +45,12 @@ vi.mock("@photo-sphere-viewer/core", () => ({
             this.video = panorama.source;
             return this.adapter.loadTexture(panorama);
         }
+        getPosition() {
+            return { yaw: 0.4, pitch: 0.2 };
+        }
+        getZoomLevel() {
+            return 60;
+        }
         destroy() {
             state.destroyed();
             this.video?.remove();
@@ -60,6 +74,30 @@ vi.mock("@photo-sphere-viewer/equirectangular-video-adapter", () => ({
 }));
 vi.mock("@photo-sphere-viewer/video-plugin", () => ({ VideoPlugin: vi.fn() }));
 
+vi.mock("hls-video-element", () => ({
+    Hls: class {
+        static isSupported() {
+            return state.supported;
+        }
+        static Events = { ERROR: "error" };
+        constructor(options: unknown) {
+            state.hlsCreated(options);
+        }
+        on(_event: string, callback: typeof state.error) {
+            state.error = callback;
+        }
+        loadSource(url: string) {
+            state.playlist(url);
+        }
+        attachMedia(video: HTMLVideoElement) {
+            state.attach(video);
+        }
+        destroy() {
+            state.hlsDestroyed();
+        }
+    },
+}));
+
 const metadata = {
     projection: "equirectangular",
     stereoMode: "mono",
@@ -79,6 +117,8 @@ const play = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
 beforeEach(() => {
     vi.clearAllMocks();
     state.pending = undefined;
+    state.supported = true;
+    state.error = undefined;
     vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(vi.fn());
     vi.spyOn(HTMLMediaElement.prototype, "load").mockImplementation(load);
     vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(play);
@@ -153,5 +193,85 @@ test("reloading metadata restores the previous playback position", async () => {
     const dispose = mountSphericalVideo(element, metadata, false);
     await vi.waitFor(() => expect(load).toHaveBeenCalledOnce());
     await vi.waitFor(() => expect(video.currentTime).toBe(3));
+    dispose();
+});
+
+test("HLS attaches to the panorama video without resetting its MediaSource", async () => {
+    const element = container();
+    const video = element.querySelector("video")!;
+    video.removeAttribute("src");
+    const dispose = mountSphericalVideo(element, metadata, false, {
+        playlistURL: "blob:hls",
+    });
+    await vi.waitFor(() => expect(state.attach).toHaveBeenCalledWith(video));
+    expect(state.playlist).toHaveBeenCalledWith("blob:hls");
+    expect(load).not.toHaveBeenCalled();
+    dispose();
+    dispose();
+    expect(state.hlsDestroyed).toHaveBeenCalledOnce();
+    expect(load).toHaveBeenCalledOnce();
+});
+
+test("native HLS fallback uses the playlist and releases it on close", async () => {
+    state.supported = false;
+    vi.spyOn(HTMLMediaElement.prototype, "canPlayType").mockReturnValue(
+        "probably",
+    );
+    const element = container();
+    const dispose = mountSphericalVideo(element, metadata, false, {
+        playlistURL: "blob:hls",
+    });
+    await vi.waitFor(() => expect(load).toHaveBeenCalledOnce());
+    expect(element.querySelector("video")?.getAttribute("src")).toBe(
+        "blob:hls",
+    );
+    expect(state.hlsCreated).not.toHaveBeenCalled();
+    dispose();
+    expect(element.querySelector("video")?.hasAttribute("src")).toBe(false);
+});
+
+test("a fatal HLS failure releases the loader and offers original spherical playback", async () => {
+    const onQualityChange = vi.fn();
+    const element = container();
+    const dispose = mountSphericalVideo(element, metadata, false, {
+        playlistURL: "blob:hls",
+        onQualityChange,
+    });
+    await vi.waitFor(() => expect(state.attach).toHaveBeenCalledOnce());
+    state.error?.("error", { fatal: true, details: "fragment failed" });
+    expect(state.hlsDestroyed).toHaveBeenCalledOnce();
+    expect(element.textContent).toContain("spherical_video_playback_error");
+    element.querySelector("button")?.click();
+    expect(onQualityChange).toHaveBeenCalledOnce();
+    dispose();
+    expect(state.destroyed).toHaveBeenCalledOnce();
+});
+
+test("quality changes restore playback time, mute, view and play state", async () => {
+    const element = container();
+    const video = element.querySelector("video")!;
+    Object.defineProperty(video, "duration", { value: 20 });
+    const dispose = mountSphericalVideo(element, metadata, false, {
+        playbackState: {
+            currentTime: 7,
+            muted: true,
+            volume: 0.3,
+            paused: false,
+            yaw: 1,
+            pitch: 0.3,
+            zoom: 70,
+        },
+    });
+    await vi.waitFor(() => expect(play).toHaveBeenCalledOnce());
+    expect(video.currentTime).toBe(7);
+    expect(video.muted).toBe(true);
+    expect(video.volume).toBe(0.3);
+    expect(state.created).toHaveBeenCalledWith(
+        expect.objectContaining({
+            defaultYaw: 1,
+            defaultPitch: 0.3,
+            defaultZoomLvl: 70,
+        }),
+    );
     dispose();
 });
