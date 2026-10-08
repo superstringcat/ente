@@ -875,6 +875,22 @@ const extractImageOrVideoMetadata = async (
     );
 
     const publicMagicMetadata: FilePublicMagicMetadataData = {};
+    if (
+        fileType == FileType.video &&
+        typeof uploadItem != "string" &&
+        !Array.isArray(uploadItem)
+    ) {
+        const { tryDetectSphericalVideo } =
+            await import("ente-gallery/utils/spherical-video");
+        const sphericalVideo = await tryDetectSphericalVideo(
+            uploadItem instanceof File ? uploadItem : uploadItem.file,
+        );
+        if (sphericalVideo !== undefined) {
+            publicMagicMetadata.sphericalVideoChecked = true;
+            if (sphericalVideo)
+                publicMagicMetadata.sphericalVideo = sphericalVideo;
+        }
+    }
 
     const modificationTime =
         parsedMetadataJSON?.modificationTime ?? lastModifiedMs * 1000;

@@ -1,4 +1,28 @@
 @import "photoswipe/dist/photoswipe.css";
+@import "@photo-sphere-viewer/core/index.css";
+@import "@photo-sphere-viewer/video-plugin/index.css";
+
+.pswp-ente .ente-spherical-video,
+.pswp-ente .ente-spherical-surface {
+    width: 100%;
+    height: 100%;
+    touch-action: none;
+}
+
+.pswp-ente .ente-spherical-error {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    box-sizing: border-box;
+    color: white;
+    background: black;
+    text-align: center;
+}
+
+.pswp-ente .ente-spherical-video video {
+    display: none;
+}
 
 .pswp-ente {
     /* PhotoSwipe defaults to z-index 10000; keep it below MUI drawers. */

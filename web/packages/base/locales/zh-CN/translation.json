@@ -1148,5 +1148,9 @@
     "auto_lock_5_minutes": "",
     "auto_lock_30_minutes": "",
     "wrong_unlock_code_one": "",
-    "wrong_unlock_code_other": ""
+    "wrong_unlock_code_other": "",
+    "reset_view": "重置视角",
+    "play_pause": "播放／暂停",
+    "spherical_video_unsupported": "暂不支持此全景视频格式。",
+    "spherical_video_playback_error": "此浏览器无法播放这段全景视频。"
 }

@@ -59,6 +59,9 @@ export type ItemVisibility =
     (typeof ItemVisibility)[keyof typeof ItemVisibility];
 
 export interface FilePublicMagicMetadataData {
+    // The checked flag distinguishes ordinary videos from older, uninspected files.
+    sphericalVideoChecked?: boolean;
+    sphericalVideo?: SphericalVideoMetadata | null;
     // An ISO 8601 date/time string without a timezone, in the local time of
     // the place where the photo was taken. e.g. "2022-01-26T13:08:20".
     dateTime?: string;
@@ -84,6 +87,18 @@ export interface FilePublicMagicMetadataData {
 }
 
 export const FilePublicMagicMetadataData = z.looseObject({
+    sphericalVideoChecked: z.boolean().optional(),
+    sphericalVideo: z
+        .looseObject({
+            projection: z.string(),
+            stereoMode: z.string(),
+            cropped: z.boolean(),
+            yaw: z.number(),
+            pitch: z.number(),
+            roll: z.number(),
+        })
+        .nullable()
+        .optional(),
     dateTime: z.string().nullish().transform(nullToUndefined),
     offsetTime: z.string().nullish().transform(nullToUndefined),
     editedTime: z.number().nullish().transform(nullToUndefined),
@@ -102,6 +117,15 @@ export const FilePublicMagicMetadataData = z.looseObject({
     long: z.number().nullish().transform(nullToUndefined),
     sv: z.number().nullish().transform(nullToUndefined),
 });
+
+export interface SphericalVideoMetadata {
+    projection: string;
+    stereoMode: string;
+    cropped: boolean;
+    yaw: number;
+    pitch: number;
+    roll: number;
+}
 
 export const metadataHash = (metadata: FileMetadata) => {
     const hash = metadata.hash;
