@@ -23,6 +23,7 @@ import {
     heartSVGPath,
     settingsSVGPath,
 } from "./icons";
+import { mountSphericalVideo } from "./spherical-video";
 
 export interface FileViewerPhotoSwipeAnnotatedFile {
     file: EnteFile;
@@ -272,6 +273,14 @@ export class FileViewerPhotoSwipe<
 
             if (itemData.fileType == FileType.video) {
                 const { videoPlaylistURL, videoURL } = itemData;
+                if (itemData.sphericalVideo && videoURL) {
+                    return {
+                        ...itemData,
+                        width: pswp.viewportSize.x,
+                        height: pswp.viewportSize.y,
+                        html: sphericalVideoHTML(videoURL),
+                    };
+                }
                 if (videoPlaylistURL && videoQuality == "auto") {
                     const mcID = `ente-mc-hls-${file.id}`;
                     return {
@@ -539,7 +548,9 @@ export class FileViewerPhotoSwipe<
         const _updateVideoControlsAndPlayback = (itemData: ItemData) => {
             const container = mediaControlsContainerElement;
             const showVideoControls =
-                itemData.fileType == FileType.video && !itemData.fetchFailed;
+                itemData.fileType == FileType.video &&
+                !itemData.fetchFailed &&
+                !itemData.sphericalVideo;
             const areVideoControlsDisabled =
                 showVideoControls &&
                 (!!itemData.isContentLoading || !itemData.mediaControllerID);
@@ -595,7 +606,8 @@ export class FileViewerPhotoSwipe<
             }
 
             const video = videoVideoEl;
-            if (video?.paused && !video.ended) void video.play();
+            if (!itemData.sphericalVideo && video?.paused && !video.ended)
+                void video.play();
         };
 
         const toggleMediaChromeSettingsMenu = () => {
@@ -621,6 +633,62 @@ export class FileViewerPhotoSwipe<
                 toggleMediaChromeSettingsMenu();
         };
 
+        const sphericalDisposers = new Map<HTMLElement, () => void>();
+        const mountSphericalContent = (
+            content: NonNullable<typeof pswp.currSlide>["content"],
+        ) => {
+            const data = asItemData(content.data);
+            const element = content.element;
+            if (
+                !data.sphericalVideo ||
+                !element ||
+                sphericalDisposers.has(element)
+            )
+                return;
+            sphericalDisposers.set(
+                element,
+                mountSphericalVideo(
+                    element,
+                    data.sphericalVideo,
+                    autoPlayMutedVideos,
+                ),
+            );
+        };
+        const disposeSphericalContent = (element: HTMLElement | undefined) => {
+            if (!element) return;
+            sphericalDisposers.get(element)?.();
+            sphericalDisposers.delete(element);
+        };
+        pswp.on("contentActivate", ({ content }) =>
+            mountSphericalContent(content),
+        );
+        pswp.on("contentDeactivate", ({ content }) =>
+            disposeSphericalContent(content.element),
+        );
+        pswp.on("contentDestroy", ({ content }) =>
+            disposeSphericalContent(content.element),
+        );
+        pswp.on("destroy", () => {
+            for (const dispose of sphericalDisposers.values()) dispose();
+            sphericalDisposers.clear();
+        });
+        pswp.on("pointerDown", (event) => {
+            const target = event.originalEvent.target;
+            if (
+                target instanceof Element &&
+                target.closest(".ente-spherical-video")
+            )
+                event.preventDefault();
+        });
+        pswp.on("viewportSize", () => {
+            // Fill the new viewport after rotation without recreating the player.
+            for (const { slide } of pswp.mainScroll.itemHolders) {
+                if (!slide || !asItemData(slide.data).sphericalVideo) continue;
+                slide.width = slide.content.width = pswp.viewportSize.x;
+                slide.height = slide.content.height = pswp.viewportSize.y;
+            }
+        });
+
         pswp.on("contentAppend", (e) => {
             // PhotoSwipe can emit this later for content it already detached.
             if (!e.content.hasSlide) {
@@ -632,6 +700,7 @@ export class FileViewerPhotoSwipe<
 
             // Initial contentAppend can follow change, so wire controls here too.
             if (currSlideData().fileID == fileID) {
+                mountSphericalContent(e.content);
                 updateVideoControlsAndPlayback(currSlideData());
             }
 
@@ -740,6 +809,10 @@ export class FileViewerPhotoSwipe<
 
         // Go through Media Chrome so its persisted mute preference stays in sync.
         const videoToggleMuteIfPossible = () => {
+            if (currSlideData().sphericalVideo && videoVideoEl) {
+                videoVideoEl.muted = !videoVideoEl.muted;
+                return;
+            }
             const muteButton = document.querySelector("media-mute-button");
             if (muteButton instanceof MediaMuteButton) muteButton.handleClick();
         };
@@ -1671,6 +1744,13 @@ const videoHTML = (
 <media-controller class="ente-vanilla-video" id="${mediaControllerID}" nohotkeys>
   <video ${autoPlayMuted ? "autoplay muted" : ""} playsinline slot="media" src="${url}"></video>
 </media-controller>
+`;
+
+const sphericalVideoHTML = (url: string) => `
+<div class="ente-spherical-video">
+  <video playsinline preload="none" src="${url}" hidden></video>
+  <div class="ente-spherical-surface"></div>
+</div>
 `;
 
 const hlsVideoControlsHTML = () => `

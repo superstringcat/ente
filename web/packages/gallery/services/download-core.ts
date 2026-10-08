@@ -7,6 +7,7 @@ import {
 } from "ente-base/crypto";
 import log from "ente-base/log";
 import type { EnteFile } from "ente-media/file";
+import type { SphericalVideoMetadata } from "ente-media/file-metadata";
 import { fileFileName } from "ente-media/file-metadata";
 import { FileType } from "ente-media/file-type";
 import { decodeLivePhoto } from "ente-media/live-photo";
@@ -19,7 +20,11 @@ export type RenderableSourceURLs =
           originalImageBlob: Blob;
           mimeType?: string;
       }
-    | { type: "video"; videoURL: string }
+    | {
+          type: "video";
+          videoURL: string;
+          sphericalVideo?: SphericalVideoMetadata | null;
+      }
     | {
           type: "livePhoto";
           imageURL: () => Promise<string>;
@@ -498,8 +503,17 @@ const createRenderableSourceURLs = async (
         }
 
         case FileType.video: {
+            let sphericalVideo = file.pubMagicMetadata?.data.sphericalVideo;
+            if (
+                sphericalVideo === undefined &&
+                !file.pubMagicMetadata?.data.sphericalVideoChecked
+            ) {
+                const { tryDetectSphericalVideo } =
+                    await import("ente-gallery/utils/spherical-video");
+                sphericalVideo = await tryDetectSphericalVideo(fileBlob);
+            }
             const videoURL = await playableVideoURL(file, fileName, fileBlob);
-            return { type: "video", videoURL };
+            return { type: "video", videoURL, sphericalVideo };
         }
 
         default: {

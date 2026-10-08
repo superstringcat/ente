@@ -3,7 +3,10 @@ import log from "ente-base/log";
 import type { RenderableSourceURLs } from "ente-gallery/services/download-core";
 import type { RawExifTags } from "ente-gallery/services/exif";
 import type { EnteFile } from "ente-media/file";
-import type { ParsedMetadata } from "ente-media/file-metadata";
+import type {
+    ParsedMetadata,
+    SphericalVideoMetadata,
+} from "ente-media/file-metadata";
 import { FileType } from "ente-media/file-type";
 import { ensureString } from "ente-utils/ensure";
 
@@ -22,6 +25,7 @@ export type ItemData = PhotoSwipeSlideData & {
     originalImageBlob?: Blob;
     videoURL?: string;
     videoPlaylistURL?: string;
+    sphericalVideo?: SphericalVideoMetadata | null;
     mediaControllerID?: string;
     isContentLoading?: boolean;
     isContentZoomable?: boolean;
@@ -209,8 +213,14 @@ export const createFileViewerDataSource = ({
         const updateVideo = (
             videoURL: string | undefined,
             hlsPlaylistData: HLSPlaylistDataForFile,
+            sphericalVideo?: SphericalVideoMetadata | null,
         ) => {
             const videoURLD = videoURL ? { videoURL } : {};
+            if (sphericalVideo) {
+                // Existing low-resolution previews are unsuitable for spherical viewing.
+                update({ ...videoURLD, sphericalVideo });
+                return;
+            }
             if (typeof hlsPlaylistData == "object") {
                 const {
                     playlistURL: videoPlaylistURL,
@@ -268,7 +278,10 @@ export const createFileViewerDataSource = ({
                 );
                 if (
                     typeof hlsPlaylistData == "object" &&
-                    opts?.videoQuality != "original"
+                    opts?.videoQuality != "original" &&
+                    !file.pubMagicMetadata?.data.sphericalVideo &&
+                    (file.pubMagicMetadata?.data.sphericalVideoChecked ||
+                        hlsPlaylistData.width != 2 * hlsPlaylistData.height)
                 ) {
                     updateVideo(undefined, hlsPlaylistData);
                     return;
@@ -286,8 +299,8 @@ export const createFileViewerDataSource = ({
                 }
 
                 case "video": {
-                    const { videoURL } = sourceURLs;
-                    updateVideo(videoURL, hlsPlaylistData);
+                    const { videoURL, sphericalVideo } = sourceURLs;
+                    updateVideo(videoURL, hlsPlaylistData, sphericalVideo);
                     break;
                 }
 
