@@ -79,7 +79,7 @@ view of the same synthetic clip in that harness; they contain no user footage.
 | ------------------------------ | ---------------------------------- |
 | ![Flat test video](before.png) | ![Interactive panorama](after.png) |
 
-The public-albums production build and type check pass. The logged-in Photos
-type check is blocked by missing generated Photos and Prelogin WASM packages in
-the local development environment. The Photos production build and real
-Safari/HEVC playback remain to be verified.
+Photos, public-albums, and Accounts production builds and type checks pass in a
+Linux builder after generating the Photos and Prelogin WASM packages. Real
+logged-in/public-link end-to-end playback and iOS Safari/HEVC playback remain to
+be verified.
