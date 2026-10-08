@@ -23,7 +23,10 @@ import {
     heartSVGPath,
     settingsSVGPath,
 } from "./icons";
-import { mountSphericalVideo } from "./spherical-video";
+import {
+    mountSphericalVideo,
+    type SphericalVideoPlaybackState,
+} from "./spherical-video";
 
 export interface FileViewerPhotoSwipeAnnotatedFile {
     file: EnteFile;
@@ -250,6 +253,10 @@ export class FileViewerPhotoSwipe<
         };
 
         const originalVideoFileIDs = new Set<number>();
+        const sphericalPlaybackStates = new Map<
+            number,
+            SphericalVideoPlaybackState
+        >();
 
         const intendedVideoQualityForFileID = (fileID: number) =>
             originalVideoFileIDs.has(fileID) ? "original" : "auto";
@@ -273,12 +280,16 @@ export class FileViewerPhotoSwipe<
 
             if (itemData.fileType == FileType.video) {
                 const { videoPlaylistURL, videoURL } = itemData;
-                if (itemData.sphericalVideo && videoURL) {
+                if (itemData.sphericalVideo && (videoURL || videoPlaylistURL)) {
                     return {
                         ...itemData,
                         width: pswp.viewportSize.x,
                         height: pswp.viewportSize.y,
-                        html: sphericalVideoHTML(videoURL),
+                        html: sphericalVideoHTML(
+                            videoQuality == "auto" && videoPlaylistURL
+                                ? undefined
+                                : videoURL,
+                        ),
                     };
                 }
                 if (videoPlaylistURL && videoQuality == "auto") {
@@ -651,6 +662,25 @@ export class FileViewerPhotoSwipe<
                     element,
                     data.sphericalVideo,
                     autoPlayMutedVideos,
+                    {
+                        playlistURL:
+                            intendedVideoQualityForFileID(data.fileID) == "auto"
+                                ? data.videoPlaylistURL
+                                : undefined,
+                        original:
+                            intendedVideoQualityForFileID(data.fileID) ==
+                            "original",
+                        playbackState: sphericalPlaybackStates.get(data.fileID),
+                        onQualityChange: data.videoPlaylistURL
+                            ? (state) => {
+                                  sphericalPlaybackStates.set(
+                                      data.fileID,
+                                      state,
+                                  );
+                                  toggleVideoQuality(data.fileID);
+                              }
+                            : undefined,
+                    },
                 ),
             );
         };
@@ -921,6 +951,10 @@ export class FileViewerPhotoSwipe<
             toggleMediaChromeSettingsMenu();
 
             const fileID = currentAnnotatedFile().file.id;
+            toggleVideoQuality(fileID);
+        };
+
+        const toggleVideoQuality = (fileID: number) => {
             if (originalVideoFileIDs.has(fileID)) {
                 originalVideoFileIDs.delete(fileID);
             } else {
@@ -1746,9 +1780,9 @@ const videoHTML = (
 </media-controller>
 `;
 
-const sphericalVideoHTML = (url: string) => `
+const sphericalVideoHTML = (url: string | undefined) => `
 <div class="ente-spherical-video">
-  <video playsinline preload="none" src="${url}" hidden></video>
+  <video playsinline preload="none" ${url ? `src="${url}"` : ""} hidden></video>
   <div class="ente-spherical-surface"></div>
 </div>
 `;

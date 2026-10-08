@@ -30,10 +30,18 @@ Native desktop-path uploads rely on this viewing fallback.
 
 ## Playback and limits
 
-Detected spherical videos use the original-quality playable source rather than
-existing low-resolution HLS previews. Playback still uses Ente's original
-client-side download, decryption, caching, and compatibility conversion. The
-panorama renderer and parser are loaded lazily.
+Known spherical videos prefer Ente's existing encrypted HLS previews when their
+dimensions describe a 2:1 equirectangular frame. The shared hls.js dependency (or
+native HLS where supported) feeds the same video element used by the panorama
+renderer. This path starts without downloading the original. A preview with an
+incompatible aspect ratio falls back to the original spherical video.
+
+An Auto / Original button switches between the stream and original while
+preserving playback time, mute, volume, play/pause, view direction, and zoom.
+Fatal streaming errors offer an Original button instead of a flat fallback.
+Playback retains Ente's existing client-side decryption, caching, public-album
+authorization, and original-file compatibility conversion. The panorama
+renderer, parser, and HLS integration are loaded lazily.
 
 The player provides dragging/touch rotation, play/pause, volume, timeline, zoom,
 reset view, and fullscreen. Gallery keyboard playback shortcuts use the same
@@ -47,7 +55,13 @@ inject missing spherical tags, render WebM panorama tags, create high-quality
 spherical HLS, or modify Flutter. V1 initial-view angles are currently ignored;
 V2 projection pose is applied. Legacy non-2:1 HLS files may require selecting
 Original to inspect their tags. Codec support and device GPU limits still apply.
-Large originals must finish downloading/decrypting before playback can start.
+Legacy files without spherical metadata still require an original download for
+their first inspection, even when they have a 2:1 preview. Detection is reused
+within the viewer when switching quality; it is not written back remotely.
+Selecting Original, or opening a file without a usable stream, requires the
+original to finish downloading/decrypting before playback starts. Existing
+stream resolution and bitrate may give visibly lower-quality spherical views.
+Stream generation on mobile/desktop remains unchanged.
 
 ## Validation
 
@@ -71,6 +85,13 @@ PhotoSwipe and a synthetic H.264 video in desktop Chrome and Chrome mobile
 touch emulation. Checks included rotation without album swiping, play/pause,
 revisiting a slide, fullscreen, and cleanup on close. These are not end-to-end
 tests of the deployed Photos/public-albums applications or real iOS Safari.
+
+A separate Chrome harness tested a synthetic 48-second AES-encrypted,
+single-file HLS video with byte-range segments and an inline encryption key,
+matching Ente's playback layout. The panorama displayed after requesting about
+20 MB of the 76 MB stream, before the entire video was downloaded. Rotation,
+play/pause, seeking, Auto / Original round-trip switching, and cleanup passed
+without page errors. No user footage was used.
 
 The following screenshots compare flat playback and the interactive spherical
 view of the same synthetic clip in that harness; they contain no user footage.
